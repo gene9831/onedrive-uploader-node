@@ -6,6 +6,7 @@ import {
   LargeFileUploadTaskOptions,
   StreamUpload,
   UploadEventHandlers,
+  UploadResult,
 } from "@microsoft/microsoft-graph-client";
 import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials";
 import fs from "node:fs";
@@ -58,7 +59,7 @@ const upload = async (options: {
   uploadSession?: LargeFileUploadSession;
   uploadEventHandlers?: UploadEventHandlers;
   afterCreateUploadSession?: (session: LargeFileUploadSession) => void;
-}) => {
+}): Promise<UploadResult> => {
   const {
     client,
     userId,
@@ -109,7 +110,7 @@ const upload = async (options: {
   );
 
   const taskOptions: LargeFileUploadTaskOptions = {
-    rangeSize: 2 * 1024 * 1024,
+    rangeSize: 5 * 1024 * 1024, // Default value for the rangeSize
     uploadEventHandlers,
   };
 
@@ -119,6 +120,10 @@ const upload = async (options: {
     session,
     taskOptions
   );
+
+  if (uploadSession) {
+    return task.resume() as Promise<UploadResult>;
+  }
 
   return task.upload();
 };
