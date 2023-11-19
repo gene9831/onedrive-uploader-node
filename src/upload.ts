@@ -125,29 +125,45 @@ const upload = async (options: {
 
 const fileSize = fs.statSync(filePath).size;
 
-upload({
-  client,
-  userId: envVars.USER_ID,
-  filePath,
-  uploadDir,
-  uploadEventHandlers: {
-    progress: (range) => {
-      if (!range) {
-        return;
-      }
-      const p = Number(((range.maxValue / fileSize) * 100).toFixed(2));
-      console.log(
-        `range: ${range.minValue}-${range.maxValue}/${fileSize}. progress: ${p}`
-      );
-    },
-  },
-}).then((res) => {
-  const driveItem = res.responseBody;
-  const { createdDateTime, id, name, size } = driveItem as any;
-  console.log({
-    createdDateTime: new Date(createdDateTime).toLocaleString(),
-    id,
-    name,
-    size,
-  });
-});
+let uploadSession: LargeFileUploadSession | undefined = undefined;
+
+const run = async () => {
+  try {
+    const res = await upload({
+      client,
+      userId: envVars.USER_ID,
+      filePath,
+      uploadDir,
+      uploadSession,
+      uploadEventHandlers: {
+        progress: (range) => {
+          if (!range) {
+            return;
+          }
+          const p = Number(((range.maxValue / fileSize) * 100).toFixed(2));
+          console.log(
+            `range: ${range.minValue}-${range.maxValue}/${fileSize}. progress: ${p}`
+          );
+        },
+      },
+      afterCreateUploadSession: (session) => {
+        uploadSession = session;
+      },
+    });
+    const driveItem = res.responseBody;
+    const { createdDateTime, id, name, size } = driveItem as any;
+    console.log({
+      createdDateTime: new Date(createdDateTime).toLocaleString(),
+      id,
+      name,
+      size,
+    });
+  } catch (err) {
+    console.log(err);
+    setTimeout(() => {
+      run();
+    }, 3000);
+  }
+};
+
+run();
