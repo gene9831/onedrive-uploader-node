@@ -109,7 +109,7 @@ const upload = async (options: {
   );
 
   const taskOptions: LargeFileUploadTaskOptions = {
-    rangeSize: 10 * 1024 * 1024,
+    rangeSize: 2 * 1024 * 1024,
     uploadEventHandlers,
   };
 
@@ -158,11 +158,14 @@ const run = async () => {
       name,
       size,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.log(err);
+    if (err?.error?.code) {
+      return;
+    }
     setTimeout(() => {
       run();
-    }, 3000);
+    }, 5000);
   }
 };
 
