@@ -132,8 +132,24 @@ const fileSize = fs.statSync(filePath).size;
 
 let uploadSession: LargeFileUploadSession | undefined = undefined;
 
+export const MathFunc = {
+  floor: Math.floor,
+  round: Math.round,
+  ceil: Math.ceil,
+} as const;
+
+const placeDecimals = (
+  orginalNum: number,
+  numOfDecimals: number = 2,
+  funcName: keyof typeof MathFunc = "floor"
+) => {
+  const pow = numOfDecimals * 10;
+  return MathFunc[funcName](orginalNum * pow) / pow;
+};
+
 const run = async () => {
   try {
+    let timestamp = Date.now();
     const res = await upload({
       client,
       userId: envVars.USER_ID,
@@ -145,9 +161,15 @@ const run = async () => {
           if (!range) {
             return;
           }
-          const p = Number(((range.maxValue / fileSize) * 100).toFixed(2));
+          const speed = placeDecimals(
+            (range.maxValue - range.minValue) /
+              ((Date.now() - timestamp) / 1000) /
+              (1024 * 1024)
+          );
+          timestamp = Date.now();
+          const p = placeDecimals((range.maxValue / fileSize) * 100);
           console.log(
-            `range: ${range.minValue}-${range.maxValue}/${fileSize}. progress: ${p}`
+            `range: ${range.minValue}-${range.maxValue}. progress: ${p}%. download speed: ${speed}M/s`
           );
         },
       },
