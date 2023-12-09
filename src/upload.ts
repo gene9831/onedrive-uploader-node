@@ -18,7 +18,9 @@ const args = process.argv.slice(2);
 
 // 检查是否提供了足够的参数
 if (args.length !== 2) {
-  console.error("Usage: node upload.js <filename> <upload directory>");
+  console.error(
+    "Usage: node upload.js <filename or directory> <upload directory>"
+  );
   process.exit(1);
 }
 
@@ -27,9 +29,9 @@ const [fileName, uploadDir] = args;
 
 const filePath = path.resolve(fileName);
 
-// 检查文件是否存在
+// 检查文件或者目录是否存在
 if (!fs.existsSync(filePath)) {
-  console.error(`File not found: ${fileName}`);
+  console.error(`File or directory not found: ${fileName}`);
   process.exit(1);
 }
 
@@ -128,10 +130,6 @@ const upload = async (options: {
   return task.upload();
 };
 
-const fileSize = fs.statSync(filePath).size;
-
-let uploadSession: LargeFileUploadSession | undefined = undefined;
-
 export const MathFunc = {
   floor: Math.floor,
   round: Math.round,
@@ -143,12 +141,19 @@ const placeDecimals = (
   numOfDecimals: number = 2,
   funcName: keyof typeof MathFunc = "floor"
 ) => {
-  const pow = numOfDecimals * 10;
+  const pow = Math.pow(10, numOfDecimals);
   return MathFunc[funcName](orginalNum * pow) / pow;
 };
 
-const run = async () => {
+let pending: { path: string; size: number }[] = [];
+const uploadWithRetries = async (
+  filePath: string,
+  fileSize: number,
+  uploadDir: string,
+  callback?: () => void
+) => {
   try {
+    let uploadSession: LargeFileUploadSession | undefined = undefined;
     let timestamp = Date.now();
     const res = await upload({
       client,
@@ -168,8 +173,13 @@ const run = async () => {
           );
           timestamp = Date.now();
           const p = placeDecimals((range.maxValue / fileSize) * 100);
+
           console.log(
-            `range: ${range.minValue}-${range.maxValue}. progress: ${p}%. download speed: ${speed}M/s`
+            `file name: ${path.basename(
+              filePath
+            )}. download speed: ${speed}M/s. progress: ${p}%. pending: ${
+              pending.length
+            }`
           );
         },
       },
@@ -185,15 +195,93 @@ const run = async () => {
       name,
       size,
     });
+
+    callback?.();
   } catch (err: any) {
     console.log(err);
     if (err?.error?.code) {
       return;
     }
     setTimeout(() => {
-      run();
-    }, 5000);
+      uploadWithRetries(filePath, fileSize, uploadDir, callback);
+    }, 3000);
   }
 };
 
-run();
+// 递归遍历目录
+function walkdirSync(
+  dir: string,
+  root: string
+): { path: string; size: number }[] {
+  const fullPath = path.join(root, dir);
+  const files = fs.readdirSync(fullPath);
+
+  return files.reduce((result, file) => {
+    const filePath = path.join(root, dir, file);
+    const relativePath = path.join(dir, file);
+    const stat = fs.statSync(filePath);
+
+    if (stat.isDirectory()) {
+      return result.concat(walkdirSync(relativePath, root));
+    }
+    return result.concat({ path: relativePath, size: stat.size });
+  }, <{ path: string; size: number }[]>[]);
+}
+
+const fsStat = fs.statSync(filePath);
+
+const getFiles = () => {
+  if (fsStat.isFile()) {
+    return {
+      root: path.dirname(filePath),
+      files: [{ path: path.basename(filePath), size: fsStat.size }],
+    };
+  }
+
+  if (fsStat.isDirectory()) {
+    const suffixes = [".mp4", ".mkv"];
+
+    const files = walkdirSync(
+      path.basename(filePath),
+      path.dirname(filePath)
+    ).filter(({ path, size }) => {
+      const suffixMatched = suffixes.some((suffix) => path.endsWith(suffix));
+      if (!suffixMatched) {
+        return false;
+      }
+      return size > 10 * 1024 * 1024;
+    });
+
+    return {
+      root: path.dirname(filePath),
+      files,
+    };
+  }
+
+  return { files: [], root: "" };
+};
+
+const { files, root } = getFiles();
+
+const MAX_TASK_NUM = 5;
+pending = files.slice(MAX_TASK_NUM);
+
+files.slice(0, MAX_TASK_NUM).forEach(({ path: filePath, size }) => {
+  const callback = () => {
+    const next = pending.shift();
+    if (next) {
+      uploadWithRetries(
+        path.join(root, next.path),
+        next.size,
+        path.join(uploadDir, path.dirname(next.path)),
+        callback
+      );
+    }
+  };
+  uploadWithRetries(
+    path.join(root, filePath),
+    size,
+    path.join(uploadDir, path.dirname(filePath)),
+    callback
+  );
+});
