@@ -1,16 +1,21 @@
+import path from "node:path";
+
+interface State {
+  total?: number;
+  running?: number;
+  pending: number;
+}
+
 interface TaskItem {
-  filename: string;
+  filePath: string;
   size: number;
   speed: number;
   uploaded: number;
 }
 
-interface ProgressContext {
-  total?: number;
-  running?: number;
-  pending: number;
+type ProgressContext = State & {
   item: TaskItem;
-}
+};
 
 const formatSize = (bytes: number) => {
   let n = bytes;
@@ -44,7 +49,8 @@ process.stdout.addListener("resize", () => {
 setFilenameMaxLen();
 
 const getItemProgress = (item: TaskItem) => {
-  const filename = item.filename
+  const filename = path
+    .basename(item.filePath)
     .padEnd(filenameMaxLen, " ")
     .slice(0, filenameMaxLen);
   const size = formatSize(item.size).padStart(8, " ").slice(0, 8);
@@ -62,9 +68,41 @@ const getItemProgress = (item: TaskItem) => {
   return `${filename} ${size} ${speed} ${prefix}[${progressStr}%]${suffix}\n`;
 };
 
-export const progress = (context: ProgressContext) => {
-  const { total, running, pending, item } = context;
-  const line = getItemProgress(item);
+let tasks: TaskItem[] = [];
+
+export const taskUpdate = (context: ProgressContext) => {
+  const { item, ...state } = context;
+
+  const task = tasks.find((t) => t.filePath === item.filePath);
+
+  if (task) {
+    // update
+    task.speed = item.speed;
+    task.uploaded = item.uploaded;
+  } else {
+    // add
+    tasks.push(item);
+  }
+
+  showProgress(state);
+};
+
+export const taskDelete = (context: ProgressContext) => {
+  const { item, ...state } = context;
+
+  const index = tasks.findIndex((t) => t.filePath === item.filePath);
+
+  if (index === -1) {
+    return;
+  }
+
+  tasks = tasks.slice(0, index).concat(tasks.slice(index + 1));
+
+  showProgress(state);
+};
+
+const showProgress = (state: State) => {
+  const { total, running, pending } = state;
   process.stdout.cursorTo(0, 0);
   process.stdout.clearScreenDown();
   total && process.stdout.write(`Total tasks: ${total}\n`);
@@ -74,5 +112,7 @@ export const progress = (context: ProgressContext) => {
   process.stdout.write(
     `${"Name".padEnd(filenameMaxLen, " ")}     Size     Speed Progress\n`
   );
-  process.stdout.write(line);
+
+  const lines = tasks.map((task) => getItemProgress(task));
+  process.stdout.write(lines.join(""));
 };

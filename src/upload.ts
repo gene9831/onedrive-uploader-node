@@ -12,7 +12,7 @@ import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-grap
 import fs from "node:fs";
 import path from "node:path";
 import { getEnvVars } from "./env";
-import { progress } from "./progress";
+import { taskDelete, taskUpdate } from "./progress";
 
 // 获取命令行参数
 const args = process.argv.slice(2);
@@ -161,12 +161,12 @@ const uploadWithRetries = async (
             ((Date.now() - timestamp) / 1000);
           timestamp = Date.now();
 
-          progress({
+          taskUpdate({
             pending: pending.length,
             item: {
-              filename: path.basename(filePath),
+              filePath,
               size: fileSize,
-              speed: speed,
+              speed,
               uploaded: range.maxValue,
             },
           });
@@ -174,6 +174,16 @@ const uploadWithRetries = async (
       },
       afterCreateUploadSession: (session) => {
         uploadSession = session;
+      },
+    });
+
+    taskDelete({
+      pending: pending.length,
+      item: {
+        filePath,
+        size: fileSize,
+        speed: 0,
+        uploaded: fileSize,
       },
     });
 
