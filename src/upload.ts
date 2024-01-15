@@ -12,6 +12,7 @@ import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-grap
 import fs from "node:fs";
 import path from "node:path";
 import { getEnvVars } from "./env";
+import { progress } from "./progress";
 
 // 获取命令行参数
 const args = process.argv.slice(2);
@@ -90,8 +91,6 @@ const upload = async (options: {
     uploadFilePath
   )}:/createuploadsession`;
 
-  console.log(`upload file path: "${uploadFilePath}"`);
-
   // uploadSession 可序列化
   const session =
     uploadSession ||
@@ -136,15 +135,6 @@ export const MathFunc = {
   ceil: Math.ceil,
 } as const;
 
-const placeDecimals = (
-  orginalNum: number,
-  numOfDecimals: number = 2,
-  funcName: keyof typeof MathFunc = "floor"
-) => {
-  const pow = Math.pow(10, numOfDecimals);
-  return MathFunc[funcName](orginalNum * pow) / pow;
-};
-
 let pending: { path: string; size: number }[] = [];
 const uploadWithRetries = async (
   filePath: string,
@@ -155,7 +145,7 @@ const uploadWithRetries = async (
   try {
     let uploadSession: LargeFileUploadSession | undefined = undefined;
     let timestamp = Date.now();
-    const res = await upload({
+    await upload({
       client,
       userId: envVars.USER_ID,
       filePath,
@@ -166,39 +156,29 @@ const uploadWithRetries = async (
           if (!range) {
             return;
           }
-          const speed = placeDecimals(
+          const speed =
             (range.maxValue - range.minValue) /
-              ((Date.now() - timestamp) / 1000) /
-              (1024 * 1024)
-          );
+            ((Date.now() - timestamp) / 1000);
           timestamp = Date.now();
-          const p = placeDecimals((range.maxValue / fileSize) * 100);
 
-          console.log(
-            `file name: ${path.basename(
-              filePath
-            )}. download speed: ${speed}M/s. progress: ${p}%. pending: ${
-              pending.length
-            }`
-          );
+          progress({
+            pending: pending.length,
+            item: {
+              filename: path.basename(filePath),
+              size: fileSize,
+              speed: speed,
+              uploaded: range.maxValue,
+            },
+          });
         },
       },
       afterCreateUploadSession: (session) => {
         uploadSession = session;
       },
     });
-    const driveItem = res.responseBody;
-    const { createdDateTime, id, name, size } = driveItem as any;
-    console.log({
-      createdDateTime: new Date(createdDateTime).toLocaleString(),
-      id,
-      name,
-      size,
-    });
 
     callback?.();
   } catch (err: any) {
-    console.log(err);
     if (err?.error?.code) {
       return;
     }
